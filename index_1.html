@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GLB Viewer — Bruno / Space Station</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.168.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600&family=Syne:wght@700;800&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #07090f;
+    --surface: #0c111c;
+    --surface2: #111827;
+    --border: #1c2940;
+    --accent: #3b82f6;
+    --accent-glow: rgba(59,130,246,0.2);
+    --green: #22c55e;
+    --orange: #f97316;
+    --red: #ef4444;
+    --text: #cbd5e1;
+    --muted: #475569;
+    --mono: 'IBM Plex Mono', monospace;
+    --display: 'Syne', sans-serif;
+  }
+
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--mono); }
+
+  /* ── LAYOUT ── */
+  .app { display: grid; grid-template-rows: 44px 1fr 32px; height: 100vh; }
+
+  /* ── TOPBAR ── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .logo { font-family: var(--display); font-size: 13px; font-weight: 800; letter-spacing: 1px; color: #fff; }
+  .logo em { color: var(--accent); font-style: normal; }
+  .divider { width: 1px; height: 16px; background: var(--border); }
+
+  .ext-tags { display: flex; gap: 6px; }
+  .ext-tag {
+    font-size: 9px; letter-spacing: 0.5px; padding: 2px 7px;
+    border-radius: 3px; border: 1px solid; font-weight: 600;
+    transition: all 0.3s;
+  }
+  .ext-tag.ok   { border-color: var(--green);  color: var(--green);  background: rgba(34,197,94,0.08); }
+  .ext-tag.warn { border-color: var(--orange); color: var(--orange); background: rgba(249,115,22,0.08); }
+  .ext-tag.off  { border-color: var(--border); color: var(--muted);  background: transparent; }
+
+  .status-pill { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); transition: all 0.4s; flex-shrink: 0; }
+  .dot.loading { background: var(--orange); animation: pulse 0.8s infinite; }
+  .dot.ready   { background: var(--green);  box-shadow: 0 0 6px var(--green); }
+  .dot.error   { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── BODY ── */
+  .body { display: flex; overflow: hidden; }
+
+  /* ── VIEWPORT ── */
+  #viewport {
+    flex: 1; position: relative; overflow: hidden;
+    background: radial-gradient(ellipse at 30% 40%, #0d1a2e 0%, #07090f 70%);
+  }
+
+  #viewport canvas { display: block; width: 100% !important; height: 100% !important; }
+
+  /* DROP ZONE */
+  #dropzone {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    transition: opacity 0.3s;
+    cursor: default;
+  }
+  #dropzone.hidden { opacity: 0; pointer-events: none; }
+
+  .drop-ring {
+    width: 120px; height: 120px; border-radius: 50%;
+    border: 2px dashed var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 42px;
+    transition: all 0.3s;
+    animation: spin-slow 8s linear infinite;
+  }
+  @keyframes spin-slow { to { transform: rotate(360deg); } }
+  .drag-over .drop-ring { border-color: var(--accent); box-shadow: 0 0 30px var(--accent-glow); }
+
+  .drop-title { font-family: var(--display); font-size: 18px; font-weight: 800; color: #fff; letter-spacing: 1px; }
+  .drop-sub { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.6; max-width: 300px; }
+  .drop-sub strong { color: var(--accent); }
+
+  .browse-btn {
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    font-family: var(--mono); font-size: 11px; letter-spacing: 2px;
+    padding: 8px 20px; cursor: pointer; transition: all 0.2s;
+  }
+  .browse-btn:hover { background: var(--accent-glow); }
+  #fileInput { display: none; }
+
+  /* COMPAT TABLE */
+  .compat-table { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .compat-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 9px; color: var(--muted); padding: 4px 10px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 3px;
+  }
+  .compat-row .dot2 { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .compat-row span { flex: 1; }
+  .compat-row em { font-style: normal; color: var(--green); font-size: 8px; }
+
+  /* LOADING OVERLAY */
+  #loading {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    background: rgba(7,9,15,0.8); backdrop-filter: blur(4px);
+    opacity: 0; pointer-events: none; transition: opacity 0.3s;
+    z-index: 5;
+  }
+  #loading.show { opacity: 1; pointer-events: all; }
+  .loader-bar {
+    width: 240px; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden;
+  }
+  .loader-fill {
+    height: 100%; background: var(--accent);
+    animation: loader-anim 1.4s ease-in-out infinite;
+    border-radius: 1px;
+  }
+  @keyframes loader-anim {
+    0%   { width: 0%;   margin-left: 0; }
+    50%  { width: 60%;  margin-left: 20%; }
+    100% { width: 0%;   margin-left: 100%; }
+  }
+  .loader-label { font-size: 10px; letter-spacing: 2px; color: var(--muted); }
+
+  /* ERROR BANNER */
+  #errorBanner {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: rgba(239,68,68,0.12); border: 1px solid var(--red);
+    color: #fca5a5; font-size: 11px; padding: 8px 16px;
+    max-width: 480px; text-align: center; line-height: 1.5;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 10;
+    border-radius: 2px;
+  }
+  #errorBanner.show { opacity: 1; pointer-events: all; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: 240px; flex-shrink: 0; overflow-y: auto;
+    border-left: 1px solid var(--border); background: var(--surface);
+    display: flex; flex-direction: column; gap: 0;
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .panel { border-bottom: 1px solid var(--border); padding: 12px 14px; }
+  .panel-title {
+    font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 10px; font-weight: 600;
+  }
+
+  /* STATS */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-box {
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 8px; border-radius: 2px;
+  }
+  .stat-label { font-size: 8px; letter-spacing: 1px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .stat-value { font-size: 13px; font-weight: 600; color: #fff; display: block; }
+
+  /* EXTENSIONS PANEL */
+  .ext-list { display: flex; flex-direction: column; gap: 5px; }
+  .ext-item {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 10px; padding: 5px 8px;
+    border: 1px solid var(--border); border-radius: 2px; background: var(--surface2);
+  }
+  .ext-icon { font-size: 12px; flex-shrink: 0; }
+  .ext-name { flex: 1; color: var(--text); font-size: 9px; }
+  .ext-status { font-size: 8px; font-weight: 600; letter-spacing: 0.5px; }
+  .ext-status.ok   { color: var(--green); }
+  .ext-status.warn { color: var(--orange); }
+
+  /* CONTROLS */
+  .ctrl-grid { display: flex; flex-direction: column; gap: 8px; }
+  .ctrl-row { display: flex; align-items: center; justify-content: space-between; }
+  .ctrl-label { font-size: 10px; color: var(--muted); }
+
+  .toggle {
+    position: relative; width: 32px; height: 18px; cursor: pointer;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .track {
+    position: absolute; inset: 0; background: var(--border); border-radius: 9px;
+    transition: background 0.2s;
+  }
+  .thumb {
+    position: absolute; top: 3px; left: 3px;
+    width: 12px; height: 12px; border-radius: 50%; background: var(--muted);
+    transition: all 0.2s;
+  }
+  .toggle input:checked ~ .track { background: var(--accent); }
+  .toggle input:checked ~ .thumb { transform: translateX(14px); background: #fff; }
+
+  .bg-btns { display: flex; gap: 5px; }
+  .bg-btn {
+    width: 20px; height: 20px; border-radius: 50%; border: 2px solid transparent;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .bg-btn.active { border-color: #fff; }
+  .bg-btn:hover { transform: scale(1.15); }
+
+  /* EXPOSURE SLIDER */
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 2px;
+    background: var(--border); outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
+
+  /* OBJECT TREE */
+  .tree-list { display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow-y: auto; }
+  .tree-item {
+    font-size: 9px; color: var(--muted); padding: 3px 6px;
+    border-radius: 2px; cursor: pointer; transition: all 0.15s;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .tree-item:hover { background: var(--surface2); color: var(--text); }
+  .tree-item.mesh { padding-left: 14px; }
+
+  /* ── BOTTOM BAR ── */
+  .bottombar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 14px; border-top: 1px solid var(--border);
+    background: var(--surface); font-size: 9px; color: var(--muted);
+    letter-spacing: 0.5px; flex-shrink: 0;
+  }
+  .hotkeys { display: flex; gap: 14px; }
+  .hotkey { display: flex; gap: 5px; align-items: center; }
+  .key {
+    background: var(--surface2); border: 1px solid var(--border);
+    padding: 1px 5px; border-radius: 2px; font-size: 8px; color: var(--text);
+  }
+  #fps { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="logo">GLB <em>VIEWER</em></div>
+      <div class="divider"></div>
+      <div class="ext-tags">
+        <div class="ext-tag ok">STANDARD ✓</div>
+        <div class="ext-tag ok" id="tagDraco">DRACO ✓</div>
+        <div class="ext-tag ok" id="tagKTX2">KTX2 ✓</div>
+      </div>
+    </div>
+    <div class="status-pill">
+      <div class="dot" id="dot"></div>
+      <span id="statusText">AWAITING FILE</span>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+    <!-- VIEWPORT -->
+    <div id="viewport">
+      <!-- Drop Zone -->
+      <div id="dropzone">
+        <div class="drop-ring">🧊</div>
+        <div class="drop-title">DROP GLB / GLTF</div>
+        <div class="drop-sub">
+          Supports <strong>standard</strong>, <strong>Draco-compressed</strong>,<br>
+          and <strong>KTX2-textured</strong> files (all Bruno Simon formats)
+        </div>
+        <button class="browse-btn" id="browseBtn">BROWSE FILE</button>
+        <input type="file" id="fileInput" accept=".glb,.gltf">
+        <div class="compat-table">
+          <div class="compat-row"><div class="dot2" style="background:var(--green)"></div><span>areas.glb, benches.glb, trees... (standard)</span><em>✓ READY</em></div>
+          <div class="compat-row"><div class="dot2" style="background:var(--green)"></div><span>bruno.glb, sudo.glb (Draco mesh)</span><em>✓ READY</em></div>
+          <div class="compat-row"><div class="dot2" style="background:var(--green)"></div><span>*-compressed.glb (Draco + KTX2)</span><em>✓ READY</em></div>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div id="loading">
+        <div class="loader-bar"><div class="loader-fill"></div></div>
+        <div class="loader-label" id="loaderLabel">INITIALIZING LOADERS...</div>
+      </div>
+
+      <!-- Error -->
+      <div id="errorBanner"></div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+
+      <!-- Stats -->
+      <div class="panel">
+        <div class="panel-title">Geometry</div>
+        <div class="stat-grid">
+          <div class="stat-box"><span class="stat-label">MESHES</span><span class="stat-value" id="sMeshes">—</span></div>
+          <div class="stat-box"><span class="stat-label">TRIANGLES</span><span class="stat-value" id="sTris">—</span></div>
+          <div class="stat-box"><span class="stat-label">VERTICES</span><span class="stat-value" id="sVerts">—</span></div>
+          <div class="stat-box"><span class="stat-label">MATERIALS</span><span class="stat-value" id="sMats">—</span></div>
+        </div>
+      </div>
+
+      <!-- Extensions -->
+      <div class="panel">
+        <div class="panel-title">Extensions Detected</div>
+        <div class="ext-list" id="extList">
+          <div class="ext-item"><span class="ext-name" style="color:var(--muted)">Load a file to inspect</span></div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="panel">
+        <div class="panel-title">Controls</div>
+        <div class="ctrl-grid">
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Wireframe</span>
+            <label class="toggle">
+              <input type="checkbox" id="wireToggle">
+              <div class="track"></div><div class="thumb"></div>
+            </label>
+          </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Auto-rotate</span>
+            <label class="toggle">
+              <input type="checkbox" id="rotateToggle" checked>
+              <div class="track"></div><div class="thumb"></div>
+            </label>
+          </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Grid</span>
+            <label class="toggle">
+              <input type="checkbox" id="gridToggle" checked>
+              <div class="track"></div><div class="thumb"></div>
+            </label>
+          </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Background</span>
+            <div class="bg-btns">
+              <div class="bg-btn active" data-bg="dark"  style="background:#07090f" title="Dark"></div>
+              <div class="bg-btn" data-bg="mid"   style="background:#1e293b" title="Mid"></div>
+              <div class="bg-btn" data-bg="light" style="background:#e2e8f0" title="Light"></div>
+              <div class="bg-btn" data-bg="warm"  style="background:#2d1b00" title="Warm"></div>
+            </div>
+          </div>
+
+          <div class="ctrl-row">
+            <span class="ctrl-label">Exposure</span>
+          </div>
+          <input type="range" id="expSlider" min="0.2" max="3" step="0.05" value="1">
+
+          <div class="ctrl-row" style="margin-top:6px">
+            <span class="ctrl-label">Env Light</span>
+          </div>
+          <input type="range" id="envSlider" min="0" max="3" step="0.1" value="1">
+
+        </div>
+      </div>
+
+      <!-- Object Tree -->
+      <div class="panel" style="flex:1">
+        <div class="panel-title">Scene Objects</div>
+        <div class="tree-list" id="treeList">
+          <div class="tree-item" style="font-style:italic">No model loaded</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- BOTTOM BAR -->
+  <div class="bottombar">
+    <div class="hotkeys">
+      <div class="hotkey"><span class="key">LMB</span><span>Orbit</span></div>
+      <div class="hotkey"><span class="key">RMB</span><span>Pan</span></div>
+      <div class="hotkey"><span class="key">Scroll</span><span>Zoom</span></div>
+      <div class="hotkey"><span class="key">F</span><span>Frame</span></div>
+      <div class="hotkey"><span class="key">W</span><span>Wireframe</span></div>
+      <div class="hotkey"><span class="key">R</span><span>Reset</span></div>
+      <div class="hotkey"><span class="key">Space</span><span>Pause</span></div>
+    </div>
+    <div><span id="fps">—</span> FPS &nbsp;|&nbsp; <span id="fileInfo">No file loaded</span></div>
+  </div>
+
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader }     from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader }    from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader }     from 'three/addons/loaders/KTX2Loader.js';
+import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// ── DOM ──────────────────────────────────────────────────────────────────────
+const $vp        = document.getElementById('viewport');
+const $dropzone  = document.getElementById('dropzone');
+const $loading   = document.getElementById('loading');
+const $loaderLbl = document.getElementById('loaderLabel');
+const $error     = document.getElementById('errorBanner');
+const $dot       = document.getElementById('dot');
+const $statusTxt = document.getElementById('statusText');
+const $fileInput = document.getElementById('fileInput');
+const $extList   = document.getElementById('extList');
+const $treeList  = document.getElementById('treeList');
+const bgColors   = { dark:'#07090f', mid:'#1e293b', light:'#e2e8f0', warm:'#2d1b00' };
+
+// ── THREE SETUP ──────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+$vp.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color('#07090f');
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.001, 1000);
+camera.position.set(3, 2, 5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 1.2;
+
+// Environment
+const pmremGen = new THREE.PMREMGenerator(renderer);
+const roomEnv  = pmremGen.fromScene(new RoomEnvironment(), 0.04);
+scene.environment = roomEnv.texture;
+
+// Grid helper
+const grid = new THREE.GridHelper(20, 40, 0x1c2940, 0x1c2940);
+grid.material.opacity = 0.5;
+grid.material.transparent = true;
+scene.add(grid);
+
+// Resize
+function resize() {
+  const w = $vp.clientWidth, h = $vp.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+resize();
+new ResizeObserver(resize).observe($vp);
+
+// ── LOADERS ──────────────────────────────────────────────────────────────────
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/');
+dracoLoader.preload();
+
+const ktx2Loader = new KTX2Loader();
+ktx2Loader.setTranscoderPath('https://cdn.jsdelivr.net/npm/three@0.168.0/examples/jsm/libs/basis/');
+ktx2Loader.detectSupport(renderer);
+
+const loader = new GLTFLoader();
+loader.setDRACOLoader(dracoLoader);
+loader.setKTX2Loader(ktx2Loader);
+
+// ── MODEL STATE ──────────────────────────────────────────────────────────────
+let currentModel = null;
+
+function setStatus(state, text) {
+  $dot.className = 'dot ' + state;
+  $statusTxt.textContent = text;
+}
+
+function showError(msg) {
+  $error.style.borderColor = 'var(--red)';
+  $error.style.color = '#fca5a5';
+  $error.style.background = 'rgba(239,68,68,0.12)';
+  $error.textContent = msg;
+  $error.classList.add('show');
+  setTimeout(() => $error.classList.remove('show'), 8000);
+}
+
+function showInfo(msg) {
+  $error.style.borderColor = 'var(--accent)';
+  $error.style.color = '#93c5fd';
+  $error.style.background = 'rgba(59,130,246,0.1)';
+  $error.textContent = msg;
+  $error.classList.add('show');
+  setTimeout(() => $error.classList.remove('show'), 6000);
+}
+
+function formatNum(n) {
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1)+'M';
+  if (n >= 1_000)     return (n/1_000).toFixed(1)+'K';
+  return String(n);
+}
+
+function loadGLB(objectURL, fileName) {
+  if (currentModel) { scene.remove(currentModel); currentModel = null; }
+  $loading.classList.add('show');
+  $loaderLbl.textContent = 'DECODING ' + fileName.toUpperCase() + '...';
+  $dropzone.classList.add('hidden');
+  setStatus('loading', 'LOADING...');
+
+  loader.load(objectURL, (gltf) => {
+    URL.revokeObjectURL(objectURL);
+    $loading.classList.remove('show');
+    currentModel = gltf.scene;
+    scene.add(currentModel);
+
+    // ── Empty-node visualization ──────────────────────────────────────────
+    // Files like tornadoPathReferences.glb contain only empty transform nodes
+    // (Blender empties used as waypoints). Inject visible sphere + label markers
+    // so they actually show up in the viewport.
+    let hasMeshes = false;
+    currentModel.traverse(o => { if (o.isMesh) hasMeshes = true; });
+
+    if (!hasMeshes) {
+      const markerGeo = new THREE.SphereGeometry(0.3, 10, 8);
+      const markerMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, wireframe: false });
+      const linePts   = [];
+      const nodeList  = [];
+
+      currentModel.traverse(obj => {
+        if (obj.isObject3D && obj !== currentModel) {
+          const wp = new THREE.Vector3();
+          obj.getWorldPosition(wp);
+          nodeList.push({ name: obj.name, pos: wp.clone() });
+
+          const sphere = new THREE.Mesh(markerGeo, markerMat);
+          sphere.position.copy(wp);
+          scene.add(sphere);
+          linePts.push(wp);
+        }
+      });
+
+      // Draw spline path between waypoints
+      if (linePts.length > 1) {
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(linePts);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x3b82f6, opacity: 0.5, transparent: true });
+        scene.add(new THREE.Line(lineGeo, lineMat));
+      }
+
+      // Info banner
+      showInfo(`⚡ No meshes — showing ${nodeList.length} empty node positions (waypoints/path markers)`);
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Auto-fit camera
+    const fitTarget = hasMeshes ? currentModel : scene;
+    const box    = new THREE.Box3().setFromObject(fitTarget);
+    // If box is empty or degenerate (point cloud), expand it
+    if (box.isEmpty() || box.getSize(new THREE.Vector3()).length() < 0.01) {
+      // Manually compute from all world positions
+      currentModel.traverse(obj => {
+        if (obj.isObject3D) {
+          const wp = new THREE.Vector3();
+          obj.getWorldPosition(wp);
+          box.expandByPoint(wp);
+        }
+      });
+    }
+    const center = box.getCenter(new THREE.Vector3());
+    const size   = box.getSize(new THREE.Vector3());
+    const maxDim = Math.max(size.x, size.y, size.z, 1);
+    const dist   = maxDim * 2.0;
+
+    controls.target.copy(center);
+    camera.position.set(center.x + dist * 0.6, center.y + dist * 0.5, center.z + dist);
+    camera.near = maxDim * 0.001;
+    camera.far  = maxDim * 100;
+    camera.updateProjectionMatrix();
+    controls.update();
+
+    // Grid position
+    grid.position.y = box.min.y;
+
+    // Stats
+    let meshCount = 0, triCount = 0, vertCount = 0;
+    const matSet = new Set();
+    currentModel.traverse(obj => {
+      if (obj.isMesh) {
+        meshCount++;
+        if (obj.material) {
+          (Array.isArray(obj.material) ? obj.material : [obj.material])
+            .forEach(m => matSet.add(m.uuid));
+        }
+        const geo = obj.geometry;
+        if (geo.index) triCount  += geo.index.count / 3;
+        else           triCount  += geo.attributes.position.count / 3;
+        vertCount += geo.attributes.position.count;
+      }
+    });
+    document.getElementById('sMeshes').textContent = formatNum(meshCount);
+    document.getElementById('sTris').textContent   = formatNum(Math.round(triCount));
+    document.getElementById('sVerts').textContent  = formatNum(vertCount);
+    document.getElementById('sMats').textContent   = matSet.size;
+
+    // Extensions
+    const extsUsed = gltf.parser?.json?.extensionsUsed || [];
+    const extIcons = {
+      'KHR_draco_mesh_compression': { icon:'🗜️', label:'Draco Mesh' },
+      'KHR_texture_basisu':         { icon:'🖼️', label:'KTX2/Basis' },
+      'KHR_materials_emissive_strength': { icon:'💡', label:'Emissive Strength' },
+      'KHR_mesh_quantization':      { icon:'📐', label:'Mesh Quantization' },
+    };
+    if (extsUsed.length === 0) {
+      $extList.innerHTML = '<div class="ext-item"><span class="ext-name">Standard GLB (no extensions)</span><span class="ext-status ok">OK</span></div>';
+    } else {
+      $extList.innerHTML = extsUsed.map(ext => {
+        const info = extIcons[ext] || { icon:'🔧', label: ext };
+        return `<div class="ext-item">
+          <span class="ext-icon">${info.icon}</span>
+          <span class="ext-name">${info.label}<br><span style="color:var(--muted);font-size:8px">${ext}</span></span>
+          <span class="ext-status ok">LOADED</span>
+        </div>`;
+      }).join('');
+    }
+
+    // Scene tree
+    const treeItems = [];
+    currentModel.traverse(obj => {
+      if (obj.name) {
+        const isMesh = obj.isMesh;
+        treeItems.push(`<div class="tree-item ${isMesh ? 'mesh' : ''}" title="${obj.name}">${isMesh ? '▸ ' : ''}${obj.name}</div>`);
+      }
+    });
+    $treeList.innerHTML = treeItems.slice(0, 80).join('') +
+      (treeItems.length > 80 ? `<div class="tree-item" style="color:var(--muted)">...+${treeItems.length-80} more</div>` : '');
+
+    document.getElementById('fileInfo').textContent = fileName;
+    setStatus('ready', 'MODEL READY');
+  }, null, (err) => {
+    URL.revokeObjectURL(objectURL);
+    $loading.classList.remove('show');
+    $dropzone.classList.remove('hidden');
+    const msg = err?.message || String(err);
+    console.error('GLB load error:', err);
+    setStatus('error', 'LOAD FAILED');
+    showError('⚠ Failed to load: ' + msg.slice(0, 160));
+    document.getElementById('fileInfo').textContent = 'Load failed';
+  });
+}
+
+// ── DRAG & DROP ───────────────────────────────────────────────────────────────
+function handleFile(file) {
+  if (!file || !file.name.match(/\.(glb|gltf)$/i)) {
+    showError('Please drop a .glb or .gltf file'); return;
+  }
+  const objectURL = URL.createObjectURL(file);
+  loadGLB(objectURL, file.name);
+}
+
+$vp.addEventListener('dragover',  e => { e.preventDefault(); $dropzone.classList.add('drag-over'); });
+$vp.addEventListener('dragleave', e => { $dropzone.classList.remove('drag-over'); });
+$vp.addEventListener('drop', e => {
+  e.preventDefault();
+  $dropzone.classList.remove('drag-over');
+  handleFile(e.dataTransfer.files[0]);
+});
+document.getElementById('browseBtn').onclick = () => $fileInput.click();
+$fileInput.onchange = e => handleFile(e.target.files[0]);
+
+// ── CONTROLS ─────────────────────────────────────────────────────────────────
+document.getElementById('wireToggle').onchange = e => {
+  if (!currentModel) return;
+  currentModel.traverse(obj => {
+    if (obj.isMesh) {
+      (Array.isArray(obj.material) ? obj.material : [obj.material])
+        .forEach(m => { m.wireframe = e.target.checked; });
+    }
+  });
+};
+document.getElementById('rotateToggle').onchange = e => {
+  controls.autoRotate = e.target.checked;
+};
+document.getElementById('gridToggle').onchange = e => {
+  grid.visible = e.target.checked;
+};
+document.getElementById('expSlider').oninput = e => {
+  renderer.toneMappingExposure = parseFloat(e.target.value);
+};
+document.getElementById('envSlider').oninput = e => {
+  scene.environmentIntensity = parseFloat(e.target.value);
+};
+
+document.querySelectorAll('.bg-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.bg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const col = bgColors[btn.dataset.bg];
+    scene.background = new THREE.Color(col);
+  };
+});
+
+// ── KEYBOARD ──────────────────────────────────────────────────────────────────
+window.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') {
+    if (!currentModel) return;
+    const box    = new THREE.Box3().setFromObject(currentModel);
+    const center = box.getCenter(new THREE.Vector3());
+    const size   = box.getSize(new THREE.Vector3());
+    const dist   = Math.max(size.x, size.y, size.z) * 2;
+    controls.target.copy(center);
+    camera.position.set(center.x + dist*0.6, center.y + dist*0.5, center.z + dist);
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+  if (e.key === 'w' || e.key === 'W') {
+    const tog = document.getElementById('wireToggle');
+    tog.checked = !tog.checked;
+    tog.dispatchEvent(new Event('change'));
+  }
+  if (e.key === 'r' || e.key === 'R') {
+    controls.reset();
+  }
+  if (e.key === ' ') {
+    e.preventDefault();
+    const tog = document.getElementById('rotateToggle');
+    tog.checked = !tog.checked;
+    controls.autoRotate = tog.checked;
+  }
+});
+
+// ── RENDER LOOP ──────────────────────────────────────────────────────────────
+let lastTime = performance.now(), frames = 0, fps = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  frames++;
+  const now = performance.now();
+  if (now - lastTime >= 1000) {
+    fps = frames; frames = 0; lastTime = now;
+    document.getElementById('fps').textContent = fps;
+  }
+}
+animate();
+</script>
+</body>
+</html>
